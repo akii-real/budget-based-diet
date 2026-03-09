@@ -1,0 +1,55 @@
+{
+  "company": {
+    "name": "Diet Master Pro",
+    "logo": "/assets/images/logo.png"
+  },
+  "navigation": [
+    {
+      "name": "Product",
+      "href": "product"
+    },
+
+    {
+      "name": "Socials",
+      "href": "about"
+    }
+  ],
+
+  "mainHero": {
+    "title": "DIET MASTER",
+    "subtitle": "Pro.",
+    "description": "Revolutionize Diet Making Using Personalized Choices And Using Local Prices.",
+    "img": "/assets/images/happyTeam.jpeg",
+    "primaryAction": {
+      "text": "Get started",
+      "href": "/GetStarted"
+    },
+    "secondaryAction": {
+      "text": "Email us",
+      "href": "https://mail.google.com/mail/?view=cm&fs=1&to=doppelgangerakii@gmail.com&su=I like react landing page!"
+    }
+  },
+  "product": {
+    "title": "Diet Making Simplified.",
+    "items": [
+      {
+        "title": "How It All Happens",
+        "description": "The Meal Planner System is an AI-powered web application that dynamically scrapes live pricing data from Zepto, Blinkit, and other online grocery services. Using this real-time price data, it intelligently recommends budget-friendly, balanced meals based on nutritional needs and affordability. Whether you’re looking to maintain weight, get leaner, or gain muscle, the system automatically generates meal plans tailored to your dietary goals while ensuring the lowest possible cost for ingredients.",
+        "img": "/assets/images/product1.jpg"
+      },
+      {
+        "title": "Personalize As Per Self",
+        "description": "We have feature which allows to choose specific diet which includes or excludes specific items for allergic people or people with specific needs in their diet.",
+        "img": "/assets/images/product2.jpg"
+      }
+    ]
+  },
+
+  "about": {
+    "socialMedia": {
+      "github": "https://github.com/",
+      "twitter": "https://twitter.com/",
+      "linkedin": "https://www.linkedin.com/in/"
+    }
+  }
+}
