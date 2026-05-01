@@ -1,0 +1,188 @@
+Diet Maker — Project Workflow & Key Files
+========================================
+
+High-level architecture
+-----------------------
+- Frontend: Next.js (React) app in ./src
+- AI provider: Ollama (local) via HTTP at OLLAMA_BASE_URL (default http://127.0.0.1:11434)
+- Data/price backend: Express server in ./backend (port 5000 by default)
+- Database: MongoDB Atlas (used by both Next API routes and backend for ingredient prices)
+
+
+How to run (local)
+------------------
+1) Start Ollama (one-time install, then keep running)
+   - Ensure the model exists locally:
+     ollama list
+   - Project expects OLLAMA_MODEL in .env.local (example: qwen2.5:3b)
+
+2) Start the backend (optional but recommended for price refresh + saving form data to Excel)
+   - In ./backend:
+     yarn start   (or: node server.js)
+   - Listens on http://localhost:5000
+
+3) Start the Next.js app (frontend + API routes)
+   - In repo root:
+     npm run dev
+   - It is pinned to port 3000.
+   - A pre-step kills any Node process already using port 3000 to prevent port-incrementing.
+
+
+Environment variables
+---------------------
+Root app: ./.env.local
+- MONGO_DB_USERNAME, MONGO_DB_PASSWORD, MONGO_DB_URL
+- JWT_SECRET (present; not heavily used in the current UI flow)
+- OLLAMA_BASE_URL (default http://127.0.0.1:11434)
+- OLLAMA_MODEL (example: qwen2.5:3b)
+
+Backend: ./backend/.env
+- MONGO_DB_USERNAME, MONGO_DB_PASSWORD, MONGO_DB_URL
+- PRICE_MAX_AGE_MINUTES (optional)
+- PORT (optional, defaults to 5000)
+
+Optional runtime knobs (root / Next side)
+- OLLAMA_TIMEOUT_MS: timeout for Ollama requests (defaults to 420000ms)
+- BACKEND_URL: backend base URL for refresh calls (defaults to http://127.0.0.1:5000)
+- BACKEND_REFRESH_TIMEOUT_MS: timeout for price refresh calls (defaults to 8000ms)
+
+
+User-facing workflow (pages)
+----------------------------
+1) Landing page
+   File: src/pages/index.tsx
+   - Has a "Get started" link configured via src/config/index.json (href: /GetStarted)
+
+2) Get Started form
+   File: src/pages/GetStarted.tsx
+   - Collects:
+     name, age, height, weight, budget, sex, dietGoal, preference
+   - preference is a toggle:
+     - Veg (green) => preference='veg'
+     - Non-Veg (red) => preference='non-veg'
+   - On submit:
+     - Best-effort POST to backend: POST {base}/save-data
+       - base = NEXT_PUBLIC_BACKEND_URL or http://127.0.0.1:5000
+       - Used to append rows to backend/Userinfo.xlsx
+     - Navigates to /diet-plan with query params containing the form data
+
+3) Diet Plan screen (generates plan)
+   File: src/pages/diet-plan.tsx
+   - Computes calorie + macro targets from:
+     age, height, weight, sex, dietGoal
+   - Calls Next API route:
+     POST /api/ai-meal-plan
+     Body includes:
+       name, age, height, weight, sex, dietGoal, preference, budget, calories, macros
+   - Caches the plan in localStorage keyed by a profileKey (includes preference)
+   - Renders 4 slots:
+     Breakfast, Lunch, Snacks, Dinner
+   - “Different Option” calls the same API with a variationSeed to diversify results.
+
+4) Recipe details page (per recipe)
+   File: src/pages/recipe.tsx
+   - Links are built from diet-plan cards:
+     /recipe?name=<Recipe name>&mealType=<slot>
+   - Fetches data from:
+     GET /api/recipe?name=...&mealType=...
+
+
+Server workflow (Next.js API routes)
+------------------------------------
+1) Meal plan generation API
+   File: src/pages/api/ai-meal-plan.js
+   Responsibilities:
+   - Builds a strict JSON-only prompt (balanced meals + hard budget rule).
+   - Enforces preference:
+     - veg: no meat/fish/eggs/gelatin
+     - non-veg: eggs/meat/fish allowed
+   - Calls Ollama:
+     POST {OLLAMA_BASE_URL}/api/chat
+     - Uses axios with a configurable timeout (OLLAMA_TIMEOUT_MS)
+     - Requests format='json' and sets num_ctx/num_predict options
+   - Parses and normalizes the model output:
+     - Accepts varied casing/keys and maps them into:
+       { Breakfast:[], Lunch:[], Snacks:[], Dinner:[] }
+     - Repairs missing slots (up to 2 retries) by asking the model to regenerate
+   - Attaches numeric “cost” field per recipe from "Estimated Cost (?)"
+   - Kicks off ingredient price refresh in the background (non-blocking):
+     refreshIngredientsViaBackend(names)
+
+2) Recipe generation API
+   File: src/pages/api/recipe.js
+   Responsibilities:
+   - Generates a single recipe JSON via Ollama when needed.
+   - Computes price totals across platforms from MongoDB ingredient data.
+   - Refreshes stale ingredient prices via backend if needed.
+
+
+Ingredient/price refresh pipeline
+---------------------------------
+Shared helper (Next side)
+  File: src/lib/ingredientPrices.js
+  - Parses/normalizes ingredient lists
+  - Calls backend endpoint:
+    POST {BACKEND_URL}/refresh-ingredient-prices
+  - Uses AbortController with BACKEND_REFRESH_TIMEOUT_MS so it won’t hang.
+
+Backend server
+  File: backend/server.js
+  Endpoints:
+  - POST /save-data
+    - Appends request JSON to backend/Userinfo.xlsx
+  - POST /refresh-ingredient-prices
+    - For each ingredient:
+      - runs backend/scrapers/scraper.py with --single <ingredient>
+      - upserts results into MongoDB collection "Ingredients" in database "dietprices"
+
+Python scraper
+  File: backend/scrapers/scraper.py
+  - Loads MongoDB creds from env
+  - Can simulate or do real scraping (USE_REAL_SCRAPER flag)
+  - Produces JSON that backend/server.js upserts
+
+
+Port/Process management
+-----------------------
+Next dev server startup behavior:
+- File: scripts/kill-port-3000.ps1
+  - Kills only Node processes listening on port 3000
+  - Refuses to kill non-node processes (exits with error)
+
+- File: package.json
+  - "predev" runs the kill script
+  - "dev" runs: next dev -p 3000
+
+Backend:
+- default port 5000 (backend/server.js)
+Ollama:
+- default port 11434 (OLLAMA_BASE_URL)
+
+
+Key files list (primary)
+------------------------
+Root:
+- package.json
+- next.config.js
+- .env.local
+- scripts/kill-port-3000.ps1
+
+Frontend pages:
+- src/pages/index.tsx
+- src/pages/GetStarted.tsx
+- src/pages/diet-plan.tsx
+- src/pages/recipe.tsx
+
+Next API routes:
+- src/pages/api/ai-meal-plan.js
+- src/pages/api/recipe.js
+
+Shared lib:
+- src/lib/ingredientPrices.js
+
+Backend:
+- backend/server.js
+- backend/scrapers/scraper.py
+- backend/.env
+- backend/Userinfo.xlsx (generated/updated at runtime)
+

@@ -14,9 +14,33 @@ interface PlatformPrices {
   Instamart: number;
 }
 
+function findRecipeInStoredPlan(name: string): Recipe | null {
+  if (typeof window === 'undefined' || !name) return null;
+  try {
+    const raw = localStorage.getItem('mealPlan');
+    if (!raw) return null;
+    const plan = JSON.parse(raw) as Record<string, Recipe[]>;
+    const all = Object.values(plan).flat();
+    const found = all.find(
+      (m) => m['Recipe name']?.toLowerCase() === name.toLowerCase()
+    );
+    return found && found.Ingredients ? found : null;
+  } catch {
+    return null;
+  }
+}
+
 const RecipePage = () => {
   const router = useRouter();
-  const { name } = router.query;
+  const { name, mealType } = router.query;
+  const nameStr =
+    typeof name === 'string' ? name : Array.isArray(name) ? name[0] : '';
+  const mealTypeStr =
+    typeof mealType === 'string'
+      ? mealType
+      : Array.isArray(mealType)
+      ? mealType[0]
+      : '';
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [platformPrices, setPlatformPrices] = useState<PlatformPrices | null>(
@@ -28,30 +52,63 @@ const RecipePage = () => {
   } | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const aiEstimatedCost = recipe?.['Estimated Cost (?)'] || '';
 
   useEffect(() => {
-    if (typeof name === 'string' && name.length > 0) {
-      console.log('Fetching recipe for name:', name);
-      fetch(`/api/recipe?name=${encodeURIComponent(name)}`)
-        .then((response) => {
-          if (!response.ok)
-            throw new Error(`HTTP error! Status: ${response.status}`);
-          return response.json();
-        })
-        .then((data) => {
+    if (!nameStr) return;
+
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setError(null);
+
+      const stored = findRecipeInStoredPlan(nameStr);
+
+      try {
+        if (stored) {
+          const response = await fetch('/api/recipe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipe: stored }),
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          if (cancelled) return;
           setRecipe(data.recipe);
           setPlatformPrices(data.platformPrices);
-          setError(null);
-        })
-        .catch((error) => {
-          console.error('Error fetching recipe data:', error);
-          setError('Failed to load recipe details.');
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-    }
-  }, [name]);
+        } else {
+          const params = new URLSearchParams({ name: nameStr });
+          if (mealTypeStr) params.set('mealType', mealTypeStr);
+          const response = await fetch(`/api/recipe?${params.toString()}`);
+          if (!response.ok) {
+            const errBody = await response.json().catch(() => ({}));
+            if (!cancelled) {
+              setError(
+                typeof errBody.error === 'string'
+                  ? errBody.error
+                  : 'Could not load this recipe from AI. Check your API key and try again.'
+              );
+            }
+            return;
+          }
+          const data = await response.json();
+          if (cancelled) return;
+          setRecipe(data.recipe);
+          setPlatformPrices(data.platformPrices);
+        }
+      } catch (e) {
+        console.error('Error fetching recipe data:', e);
+        if (!cancelled) setError('Failed to load recipe details.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nameStr, mealTypeStr]);
 
   useEffect(() => {
     if (platformPrices) {
@@ -83,7 +140,7 @@ const RecipePage = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-cover bg-center">
-        <p className="text-lg text-white bg-black bg-opacity-50 px-4 py-2 rounded">
+        <p className="text-lg text-white bg-black bg-opacity-50 px-4 py-2 rounded max-w-lg text-center">
           {error}
         </p>
       </div>
@@ -118,11 +175,19 @@ const RecipePage = () => {
             <strong>Fats:</strong> {recipe['Fats (g)'] || 'N/A'} g
           </p>
 
-          {priceComparison && (
+          {(priceComparison || aiEstimatedCost) && (
             <div className="mt-6">
               <h2 className="text-xl font-semibold text-black mb-2">
                 Estimated Cost:
               </h2>
+              {aiEstimatedCost && (
+                <p className="text-base text-gray-800">
+                  <strong>AI Predicted Cost:</strong> ₹
+                  {Number(
+                    String(aiEstimatedCost).replace(/[^0-9.]/g, '') || 0
+                  ).toFixed(2)}
+                </p>
+              )}
               <p className="text-lg font-semibold text-green-700">
                 Lowest Price: {lowestPrice}
               </p>
@@ -130,10 +195,10 @@ const RecipePage = () => {
               <div className="mt-2">
                 <h3 className="font-semibold">Price Comparison:</h3>
                 <ul className="space-y-1">
-                  {Object.keys(priceComparison).map((platform) => (
+                  {Object.keys(priceComparison || {}).map((platform) => (
                     <li key={platform}>
                       <strong>{platform}: </strong>
-                      {priceComparison[platform]}
+                      {priceComparison?.[platform]}
                     </li>
                   ))}
                 </ul>
@@ -146,6 +211,12 @@ const RecipePage = () => {
               <h2 className="text-xl font-semibold mt-6 mb-2 text-black">
                 Ingredients:
               </h2>
+              {recipe['Ingredient Quantities'] && (
+                <p className="text-sm text-gray-700 mb-2">
+                  <strong>Required Quantities:</strong>{' '}
+                  {recipe['Ingredient Quantities']}
+                </p>
+              )}
               <ul className="list-disc list-inside space-y-1">
                 {recipe.Ingredients.split(',').map((ingredient, index) => (
                   <li key={index}>{ingredient.trim()}</li>

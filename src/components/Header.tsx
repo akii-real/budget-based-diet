@@ -28,28 +28,9 @@ import { Link } from 'react-scroll';
 
 import config from '../config/index.json';
 
-/**
- * Navigation item interface defining the structure of each nav item
- * @interface
- */
-interface NavigationItem {
-  name: string;
-  href: string;
-  current: boolean;
-}
-
 const Menu = () => {
   const { navigation, company } = config;
   const { name: companyName, logo } = company;
-
-  /**
-   * Determines if a navigation item is currently active
-   * @param {boolean} current - Whether the item is currently active
-   * @returns {string} Tailwind CSS classes for styling the active/inactive state
-   */
-  function classNames(...classes: string[]) {
-    return classes.filter(Boolean).join(' ');
-  }
 
   return (
     <>

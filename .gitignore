@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+
+# Yarn-only: do not commit npm lockfiles
+package-lock.json
 /.pnp
 .pnp.js
 
